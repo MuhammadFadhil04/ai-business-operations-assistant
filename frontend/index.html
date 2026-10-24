@@ -1,0 +1,314 @@
+
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#f5f7fb">
+    <title>AI Business Operations Assistant</title>
+    <link rel="stylesheet" href="style.css?v=2">
+</head>
+<body>
+    <header class="app-header">
+        <div class="header-content">
+            <a class="brand" href="#" aria-label="Beranda">
+                <span class="brand-icon" aria-hidden="true">AI</span>
+                <span>Business Assistant</span>
+            </a>
+            <span class="connection-status">
+                <span class="status-dot"></span>
+                Workspace
+            </span>
+        </div>
+    </header>
+
+    <main>
+        <section class="welcome-section">
+            <div>
+                <p class="eyebrow">BUSINESS OPERATIONS</p>
+                <h1>Kelola pekerjaan dengan lebih cerdas.</h1>
+                <p class="welcome-description">
+                    Atur tugas operasional dan gunakan AI Assistant
+                    untuk membantu pekerjaan sehari-hari.
+                </p>
+            </div>
+        </section>
+
+<section class="stats-grid" aria-label="Ringkasan tugas">
+  <article class="stat-card">
+    <div class="stat-top">
+      <span class="stat-label">Total Tugas</span>
+      <span class="stat-icon total-icon">▤</span>
+    </div>
+    <p class="stat-value" id="total-tasks">0</p>
+    <p class="stat-description">Semua tugas terdaftar</p>
+  </article>
+
+  <article class="stat-card">
+    <div class="stat-top">
+      <span class="stat-label">Menunggu</span>
+      <span class="stat-icon pending-icon">◷</span>
+    </div>
+    <p class="stat-value" id="pending-tasks">0</p>
+    <p class="stat-description">Tugas belum dikerjakan</p>
+  </article>
+
+  <article class="stat-card">
+    <div class="stat-top">
+      <span class="stat-label">Berlangsung</span>
+      <span class="stat-icon progress-icon">↗</span>
+    </div>
+    <p class="stat-value" id="in-progress-tasks">0</p>
+    <p class="stat-description">Tugas sedang dikerjakan</p>
+  </article>
+
+  <article class="stat-card">
+    <div class="stat-top">
+      <span class="stat-label">Selesai</span>
+      <span class="stat-icon completed-icon">✓</span>
+    </div>
+    <p class="stat-value" id="completed-tasks">0</p>
+    <p class="stat-description">Tugas telah diselesaikan</p>
+  </article>
+</section>
+
+        <div class="workspace-grid">
+            <section id="add-task-section" class="panel add-task-panel">
+                <div class="section-heading">
+                    <div>
+                        <p class="eyebrow">TASK MANAGEMENT</p>
+                        <h2>Tambah tugas</h2>
+                        <p>Buat tugas operasional baru.</p>
+                    </div>
+                    <span class="heading-icon" aria-hidden="true">+</span>
+                </div>
+
+                <form id="task-form" onsubmit="return false;">
+                    <div class="form-group">
+                        <label for="title">Judul tugas</label>
+                        <input
+                            type="text"
+                            id="title"
+                            name="title"
+                            placeholder="Contoh: Membuat laporan penjualan"
+                            maxlength="200"
+                            required
+                        >
+                    </div>
+
+                    <div class="form-group">
+                        <label for="description">Deskripsi <span>(opsional)</span></label>
+                        <textarea
+                            id="description"
+                            name="description"
+                            placeholder="Jelaskan tugas yang perlu dilakukan..."
+                            rows="4"
+                        ></textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="taskDeadline">
+                            Deadline <span>(opsional)</span>
+                        </label>
+                        <input
+                            type="datetime-local"
+                            id="taskDeadline"
+                            name="deadline"
+                        >
+                        <small>
+                            Pilih tanggal dan waktu penyelesaian tugas.
+                        </small>
+                    </div>
+
+                    <button
+                        type="button"
+                        id="add-task-button"
+                        class="primary-button"
+                    >
+                        <span aria-hidden="true">+</span>
+                        Tambah tugas
+                    </button>
+                </form>
+            </section>
+
+            <section class="panel chat-section">
+                <div class="section-heading">
+                    <div>
+                        <p class="eyebrow">AI WORKSPACE</p>
+                        <h2>AI Business Assistant</h2>
+                        <p>Diskusikan tugas dan operasional bisnismu.</p>
+                    </div>
+                    <span class="ai-icon" aria-hidden="true">✦</span>
+                </div>
+
+                <div
+                    id="chat-messages"
+                    class="chat-messages"
+                    aria-live="polite"
+                    aria-label="Percakapan dengan AI"
+                >
+                    <div class="chat-message ai-message">
+                        Halo! Saya AI Business Assistant.
+                        Ada yang bisa saya bantu?
+                    </div>
+                </div>
+
+                <form id="chat-form" class="chat-form" onsubmit="return false;">
+                    <input
+                        type="text"
+                        id="chat-input"
+                        placeholder="Tulis perintah atau pertanyaan..."
+                        autocomplete="off"
+                        aria-label="Pesan untuk AI"
+                        required
+                    >
+                    <button type="button" id="chat-submit">
+                        Kirim
+                    </button>
+                </form>
+
+                <p id="chat-status" class="chat-status" role="status"></p>
+            </section>
+        </div>
+
+        <section id="task-list-section" class="panel task-list-panel">
+            <div class="section-heading">
+                <div>
+                    <p class="eyebrow">YOUR WORKSPACE</p>
+                    <h2>Daftar tugas</h2>
+                    <p>Kelola dan pantau pekerjaan yang perlu diselesaikan.</p>
+                </div>
+                <span class="heading-icon" aria-hidden="true">☷</span>
+            </div>
+            
+            <div class="task-toolbar">
+            <div class="task-search">
+                <label for="task-search-input">Cari tugas</label>
+                <input
+                type="search"
+                id="task-search-input"
+                placeholder="Cari judul atau deskripsi..."
+                autocomplete="off"
+                >
+            </div>
+
+            <div class="task-filter">
+                <label for="task-status-filter">Filter status</label>
+                <select id="task-status-filter">
+                <option value="all">Semua status</option>
+                <option value="pending">Menunggu</option>
+                <option value="in_progress">Berlangsung</option>
+                <option value="completed">Selesai</option>
+                </select>
+            </div>
+            </div>
+
+            <div id="task-list">
+                <p>Memuat daftar tugas...</p>
+            </div>
+
+            <!-- Modal Edit Tugas -->
+            <div
+                id="edit-task-modal"
+                class="modal-overlay"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="edit-modal-title"
+                aria-hidden="true"
+                hidden
+            >
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <div>
+                            <p class="eyebrow">TASK MANAGEMENT</p>
+                            <h2 id="edit-modal-title">Edit tugas</h2>
+                            <p>Perbarui informasi tugas kamu.</p>
+                        </div>
+
+                        <button
+                            type="button"
+                            id="close-edit-modal"
+                            class="modal-close"
+                            aria-label="Tutup modal"
+                        >
+                            &times;
+                        </button>
+                    </div>
+
+                    <form id="edit-task-form" onsubmit="return false;">
+                        <input type="hidden" id="edit-task-id">
+
+                        <div class="form-group">
+                            <label for="edit-task-title">Judul tugas</label>
+                            <input
+                                type="text"
+                                id="edit-task-title"
+                                maxlength="200"
+                                required
+                            >
+                        </div>
+                        <div class="form-group">
+                            <label for="edit-task-description">Deskripsi</label>
+                            <textarea
+                                id="edit-task-description"
+                                rows="4"
+                                placeholder="Masukkan deskripsi tugas..."
+                            ></textarea>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="editTaskDeadline">
+                                Deadline <span>(opsional)</span>
+                            </label>
+                            <input
+                                type="datetime-local"
+                                id="editTaskDeadline"
+                                name="deadline"
+                            >
+                            <small>
+                                Kosongkan jika tugas tidak memiliki deadline.
+                            </small>
+                        </div>
+
+                        <div class="modal-actions">
+                            <button
+                                type="button"
+                                id="cancel-edit-modal"
+                                class="secondary-button"
+                            >
+                                Batal
+                            </button>
+
+                            <button
+                                type="button"
+                                id="save-edit-task"
+                                class="primary-button"
+                            >
+                                Simpan perubahan
+                            </button>
+                        </div>
+
+                        <p
+                            id="edit-task-status"
+                            class="chat-status"
+                            role="status"
+                        ></p>
+                    </form>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="app-footer">
+        <p>AI Business Operations Assistant</p>
+        <p>Kelola pekerjaan dengan lebih terstruktur.</p>
+    </footer>
+    <div
+    id="toast-container"
+    class="toast-container"
+    aria-live="polite"
+    aria-atomic="true"
+></div>
+    <script src="script.js?v=10"></script>
+</body>
+</html>
