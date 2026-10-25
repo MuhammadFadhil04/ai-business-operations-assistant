@@ -4,10 +4,16 @@ const API_URL = "http://127.0.0.1:8000";
 const taskList = document.getElementById("task-list");
 const taskSearchInput = document.getElementById("task-search-input");
 const taskStatusFilter = document.getElementById("task-status-filter");
+const taskSortSelect = document.getElementById("task-sort-select");
 
 const taskForm = document.getElementById("task-form");
 const addTaskButton = document.getElementById("add-task-button");
 const deadlineInput = document.getElementById("taskDeadline");
+const taskImportanceInput =
+    document.getElementById("taskImportance");
+
+const editTaskImportance =
+    document.getElementById("editTaskImportance");
 
 const chatForm = document.getElementById("chat-form");
 const chatInput = document.getElementById("chat-input");
@@ -21,6 +27,8 @@ const editTaskTitle = document.getElementById("edit-task-title");
 const editTaskDescription = document.getElementById("edit-task-description");
 const editTaskDeadline = document.getElementById("editTaskDeadline");
 const editTaskStatus = document.getElementById("edit-task-status");
+const editTaskStatusMessage =
+    document.getElementById("edit-task-status-message");
 const saveEditTaskButton = document.getElementById("save-edit-task");
 
 const closeEditModalButton = document.getElementById("close-edit-modal");
@@ -168,6 +176,7 @@ function formatDeadline(deadline) {
 // MEMUAT DATA TUGAS
 // ========================
 
+
 async function loadTasks() {
     taskList.replaceChildren();
 
@@ -176,19 +185,19 @@ async function loadTasks() {
     taskList.appendChild(loadingMessage);
 
     try {
-        const response = await fetch(`${API_URL}/tasks`);
+        const response = await fetch(`${API_URL}/tasks/prioritized`);
 
         if (!response.ok) {
             throw new Error(`HTTP error: ${response.status}`);
         }
 
-        const tasks = await response.json();
+        const result = await response.json();
 
-        if (!Array.isArray(tasks)) {
-            throw new Error("Format data tugas tidak valid.");
+        if (!result || !Array.isArray(result.tasks)) {
+            throw new Error("Format data prioritas tugas tidak valid.");
         }
 
-        allTasks = tasks;
+        allTasks = result.tasks;
 
         updateTaskStatistics(allTasks);
         renderTasks();
@@ -202,7 +211,7 @@ async function loadTasks() {
 
         const errorMessage = document.createElement("p");
         errorMessage.textContent =
-            "Gagal memuat tugas. Periksa apakah backend berjalan dan koneksi API tersedia.";
+            "Gagal memuat tugas. Periksa backend dan endpoint prioritas.";
 
         taskList.appendChild(errorMessage);
     }
@@ -212,11 +221,13 @@ async function loadTasks() {
 // PENCARIAN DAN FILTER
 // ========================
 
+
 function renderTasks() {
     taskList.replaceChildren();
 
     const keyword = taskSearchInput.value.trim().toLowerCase();
     const selectedStatus = taskStatusFilter.value;
+    const selectedSort = taskSortSelect.value;
 
     const filteredTasks = allTasks.filter((task) => {
         const title = String(task.title || "").toLowerCase();
@@ -236,6 +247,33 @@ function renderTasks() {
         return matchesKeyword && matchesStatus;
     });
 
+    // Urutkan salinan hasil filter, bukan mengubah allTasks.
+    filteredTasks.sort((a, b) => {
+        if (selectedSort === "priority") {
+            const scoreA = Number(a.priority_score ?? 10);
+            const scoreB = Number(b.priority_score ?? 10);
+
+            return scoreB - scoreA;
+        }
+
+        if (selectedSort === "deadline") {
+            const deadlineA = a.deadline
+                ? new Date(a.deadline).getTime()
+                : Infinity;
+            const deadlineB = b.deadline
+                ? new Date(b.deadline).getTime()
+                : Infinity;
+
+            return deadlineA - deadlineB;
+        }
+
+        if (selectedSort === "newest") {
+            return Number(b.id || 0) - Number(a.id || 0);
+        }
+
+        return 0;
+    });
+
     if (filteredTasks.length === 0) {
         const emptyMessage = document.createElement("p");
 
@@ -246,6 +284,15 @@ function renderTasks() {
         taskList.appendChild(emptyMessage);
         return;
     }
+
+    const priorityLabels = {
+        critical: "Kritis",
+        high: "Tinggi",
+        medium: "Sedang",
+        low: "Rendah",
+        undetermined: "Belum ditentukan",
+        completed: "Selesai",
+    };
 
     filteredTasks.forEach((task) => {
         const card = document.createElement("article");
@@ -273,16 +320,57 @@ function renderTasks() {
 
         header.append(title, status);
 
+        // Informasi prioritas dari backend.
+        const priority = document.createElement("div");
+        const priorityLevel = String(
+            task.priority_level || "undetermined"
+        ).toLowerCase();
+
+        priority.className = "task-priority";
+
+        const priorityBadge = document.createElement("span");
+        priorityBadge.className = `priority-badge priority-${priorityLevel}`;
+        priorityBadge.textContent =
+            priorityLabels[priorityLevel] || "Belum ditentukan";
+
+        const priorityScore = document.createElement("span");
+        priorityScore.className = "priority-score";
+        priorityScore.textContent =
+            `Skor: ${Number(task.priority_score ?? 10)}/100`;
+
+        const priorityReason = document.createElement("p");
+        priorityReason.className = "priority-reason";
+        priorityReason.textContent =
+            task.priority_reason || "Alasan prioritas belum tersedia.";
+
+        priority.append(priorityBadge, priorityScore, priorityReason);
+
+        const importanceLabels = {
+            low: "Rendah",
+            normal: "Normal",
+            high: "Tinggi",
+        };
+
+        const importance = String(
+            task.importance || "normal"
+        ).toLowerCase();
+
+        const importanceBadge = document.createElement("span");
+        importanceBadge.className = `importance-badge importance-${importance}`;
+        importanceBadge.textContent =
+            `Kepentingan: ${importanceLabels[importance] || "Normal"}`;
+
         const description = document.createElement("p");
         description.textContent =
             task.description || "Tidak ada deskripsi.";
 
+        const deadlineElement = document.createElement("p");
+        deadlineElement.textContent =
+            `Deadline: ${formatDeadline(task.deadline)}`;
+        deadlineElement.className = "task-deadline";
+
         const taskId = document.createElement("small");
         taskId.textContent = `ID tugas: ${task.id}`;
-
-        const deadlineElement = document.createElement("p");
-        deadlineElement.textContent = `Deadline: ${formatDeadline(task.deadline)}`;
-        deadlineElement.className = "task-deadline";
 
         const actions = document.createElement("div");
         actions.className = "task-actions";
@@ -306,13 +394,24 @@ function renderTasks() {
         });
 
         actions.append(editButton, deleteButton);
-        card.append(header, description, deadlineElement, taskId, actions);
+
+        card.append(
+            header,
+            importanceBadge,
+            priority,
+            description,
+            deadlineElement,
+            taskId,
+            actions
+        );
+
         taskList.appendChild(card);
     });
 }
 
 taskSearchInput.addEventListener("input", renderTasks);
 taskStatusFilter.addEventListener("change", renderTasks);
+taskSortSelect.addEventListener("change", renderTasks);
 
 // ========================
 // TAMBAH TUGAS
@@ -327,6 +426,7 @@ async function handleAddTask(event) {
     const title = titleInput.value.trim();
     const description = descriptionInput.value.trim();
     const deadline = deadlineInput.value || null;
+    const importance = taskImportanceInput.value;
 
     if (!title) {
         alert("Judul tugas wajib diisi.");
@@ -343,6 +443,7 @@ async function handleAddTask(event) {
                 title,
                 description: description || null,
                 deadline,
+                importance,
             }),
         });
 
@@ -381,7 +482,9 @@ function openEditModal(task) {
     editTaskDeadline.value = task.deadline
         ? task.deadline.replace(" ", "T").slice(0, 16)
         : "";
-    editTaskStatus.textContent = "";
+    editTaskImportance.value = task.importance || "normal";
+    editTaskStatus.value = task.status || "pending";
+    editTaskStatusMessage.textContent = "";
 
     editTaskModal.hidden = false;
     editTaskModal.setAttribute("aria-hidden", "false");
@@ -396,7 +499,7 @@ function closeEditModal() {
     document.body.classList.remove("modal-open");
 
     editTaskForm.reset();
-    editTaskStatus.textContent = "";
+    editTaskStatusMessage.textContent = "";
     saveEditTaskButton.disabled = false;
     saveEditTaskButton.textContent = "Simpan perubahan";
 }
@@ -423,16 +526,18 @@ async function handleEditTask(event) {
     const title = editTaskTitle.value.trim();
     const description = editTaskDescription.value.trim();
     const deadline = editTaskDeadline.value || null;
+    const importance = editTaskImportance.value;
+    const status = editTaskStatus.value;
 
     if (!title) {
-        editTaskStatus.textContent = "Judul tugas wajib diisi.";
+        editTaskStatusMessage.textContent = "Judul tugas wajib diisi.";
         editTaskTitle.focus();
         return;
     }
 
     saveEditTaskButton.disabled = true;
     saveEditTaskButton.textContent = "Menyimpan...";
-    editTaskStatus.textContent = "Sedang menyimpan perubahan...";
+    editTaskStatusMessage.textContent = "Sedang menyimpan perubahan...";
 
     try {
         const response = await fetch(`${API_URL}/tasks/${taskId}`, {
@@ -444,6 +549,8 @@ async function handleEditTask(event) {
                 title,
                 description: description || null,
                 deadline,
+                importance,
+                status,
             }),
         });
 
@@ -461,7 +568,7 @@ async function handleEditTask(event) {
     } catch (error) {
         console.error("Gagal mengedit tugas:", error);
 
-        editTaskStatus.textContent =
+        editTaskStatusMessage.textContent =
             error.message || "Terjadi kesalahan saat mengedit tugas.";
 
         saveEditTaskButton.disabled = false;

@@ -1003,3 +1003,114 @@ body.modal-open {
         animation: none;
     }
 }
+
+/* Smart Task Prioritization */
+.task-priority {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin: 12px 0;
+}
+
+.priority-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 5px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+    background: #eef2f7;
+    color: #475569;
+}
+
+.priority-critical {
+    background: #fee2e2;
+    color: #b91c1c;
+}
+
+.priority-high {
+    background: #ffedd5;
+    color: #c2410c;
+}
+
+.priority-medium {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.priority-low {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.priority-undetermined {
+    background: #e2e8f0;
+    color: #475569;
+}
+
+.priority-completed {
+    background: #dbeafe;
+    color: #1d4ed8;
+}
+
+.priority-score {
+    font-size: 12px;
+    font-weight: 600;
+    color: #64748b;
+}
+
+.priority-reason {
+    flex-basis: 100%;
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #64748b;
+}
+
+.task-sort {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.task-sort label {
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.task-sort select {
+    min-height: 40px;
+    padding: 8px 12px;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    background: #fff;
+    font: inherit;
+}
+
+.importance-badge {
+    display: inline-block;
+    width: fit-content;
+    margin: 8px 0;
+    padding: 5px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    background: #f3f4f6;
+    color: #374151;
+}
+
+.importance-low {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.importance-normal {
+    background: #f3f4f6;
+    color: #374151;
+}
+
+.importance-high {
+    background: #fee2e2;
+    color: #991b1b;
+}

@@ -15,7 +15,7 @@ def get_connection():
 
 
 def init_db():
-    """Membuat tabel tasks dan menambahkan kolom deadline jika diperlukan."""
+    """Membuat tabel dan menambahkan kolom yang diperlukan."""
     with get_connection() as connection:
         connection.execute("""
             CREATE TABLE IF NOT EXISTS tasks (
@@ -35,10 +35,20 @@ def init_db():
             ).fetchall()
         }
 
-        # Tambahkan deadline tanpa menghapus data lama.
+        # Migrasi deadline tanpa menghapus data lama.
         if "deadline" not in columns:
             connection.execute(
                 "ALTER TABLE tasks ADD COLUMN deadline TEXT"
+            )
+
+        # Migrasi tingkat kepentingan.
+        # Tugas lama akan memperoleh nilai normal.
+        if "importance" not in columns:
+            connection.execute(
+                """
+                ALTER TABLE tasks
+                ADD COLUMN importance TEXT NOT NULL DEFAULT 'normal'
+                """
             )
 
 

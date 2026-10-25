@@ -120,6 +120,15 @@
                         </small>
                     </div>
 
+                    <div class="form-group">
+                        <label for="taskImportance">Tingkat Kepentingan</label>
+                        <select id="taskImportance" name="importance">
+                            <option value="low">Rendah</option>
+                            <option value="normal" selected>Normal</option>
+                            <option value="high">Tinggi</option>
+                        </select>
+                    </div>
+
                     <button
                         type="button"
                         id="add-task-button"
@@ -182,25 +191,34 @@
             </div>
             
             <div class="task-toolbar">
-            <div class="task-search">
-                <label for="task-search-input">Cari tugas</label>
-                <input
-                type="search"
-                id="task-search-input"
-                placeholder="Cari judul atau deskripsi..."
-                autocomplete="off"
-                >
-            </div>
+                <div class="task-search">
+                    <label for="task-search-input">Cari tugas</label>
+                    <input
+                        type="search"
+                        id="task-search-input"
+                        placeholder="Cari judul atau deskripsi..."
+                        autocomplete="off"
+                    >
+                </div>
 
-            <div class="task-filter">
-                <label for="task-status-filter">Filter status</label>
-                <select id="task-status-filter">
-                <option value="all">Semua status</option>
-                <option value="pending">Menunggu</option>
-                <option value="in_progress">Berlangsung</option>
-                <option value="completed">Selesai</option>
-                </select>
-            </div>
+                <div class="task-filter">
+                    <label for="task-status-filter">Filter status</label>
+                    <select id="task-status-filter">
+                        <option value="all">Semua status</option>
+                        <option value="pending">Menunggu</option>
+                        <option value="in_progress">Berlangsung</option>
+                        <option value="completed">Selesai</option>
+                    </select>
+                </div>
+
+                <div class="task-sort">
+                    <label for="task-sort-select">Urutkan tugas</label>
+                    <select id="task-sort-select">
+                        <option value="priority">Prioritas tertinggi</option>
+                        <option value="deadline">Deadline terdekat</option>
+                        <option value="newest">Tugas terbaru</option>
+                    </select>
+                </div>
             </div>
 
             <div id="task-list">
@@ -270,6 +288,24 @@
                             </small>
                         </div>
 
+                        <div class="form-group">
+                            <label for="edit-task-status">Status Tugas</label>
+                            <select id="edit-task-status" name="status" required>
+                                <option value="pending">Menunggu</option>
+                                <option value="in_progress">Berlangsung</option>
+                                <option value="completed">Selesai</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="editTaskImportance">Tingkat Kepentingan</label>
+                            <select id="editTaskImportance" name="importance">
+                                <option value="low">Rendah</option>
+                                <option value="normal">Normal</option>
+                                <option value="high">Tinggi</option>
+                            </select>
+                        </div>
+
                         <div class="modal-actions">
                             <button
                                 type="button"
@@ -289,7 +325,7 @@
                         </div>
 
                         <p
-                            id="edit-task-status"
+                            id="edit-task-status-message"
                             class="chat-status"
                             role="status"
                         ></p>

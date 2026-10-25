@@ -1,25 +1,23 @@
-
-from asyncio import tasks
-from asyncio import tasks
+import json
+import logging
+import os
+import re
+import secrets
+import time
+import urllib.error
+import urllib.request
 from datetime import datetime
 from typing import Literal
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from google import genai
+from google.genai import types
 from pydantic import BaseModel, Field
 
 import crud
 from database import init_db
-
-from fastapi.middleware.cors import CORSMiddleware
-import os
-from dotenv import load_dotenv
-from google import genai
-import secrets
-import time
-
-import json
-import urllib.request
-import urllib.error
 
 # Membaca konfigurasi dari file .env
 load_dotenv()
@@ -27,8 +25,23 @@ load_dotenv()
 # Mengambil API key dari environment
 api_key = os.getenv("GEMINI_API_KEY")
 
-# Membuat client Gemini jika API key tersedia
-gemini_client = genai.Client(api_key=api_key) if api_key else None
+# Membuat client Gemini dengan timeout dan retry terbatas
+gemini_client = (
+    genai.Client(
+        api_key=api_key,
+        http_options=types.HttpOptions(
+            timeout=30_000,
+            retry_options=types.HttpRetryOptions(
+                attempts=2,
+                initial_delay=1.0,
+                max_delay=2.0,
+                http_status_codes=[429, 500, 502, 503, 504],
+            ),
+        ),
+    )
+    if api_key
+    else None
+)
 
 app = FastAPI(
     title="AI Business Operations Assistant",
@@ -64,6 +77,135 @@ def validate_deadline(value: str | None) -> str | None:
         )
 
     return parsed.isoformat(timespec="seconds")
+
+
+def calculate_task_priority(task: dict) -> dict:
+    """Menghitung prioritas tugas dari deadline dan kepentingannya."""
+    status = str(task.get("status") or "pending").strip().lower()
+    deadline = task.get("deadline")
+    importance = str(
+        task.get("importance") or "normal"
+    ).strip().lower()
+
+    importance_scores = {
+        "low": 30,
+        "normal": 60,
+        "high": 100,
+    }
+    importance_labels = {
+        "low": "rendah",
+        "normal": "normal",
+        "high": "tinggi",
+    }
+    if importance not in importance_scores:
+        importance = "normal"
+
+    importance_score = importance_scores[importance]
+    importance_label = importance_labels[importance]
+
+    if status == "completed":
+        return {
+            "score": 0,
+            "level": "completed",
+            "reason": "Tugas sudah selesai.",
+            "deadline_score": 0,
+            "importance_score": importance_score,
+        }
+
+    deadline_score = 10
+    deadline_reason = "Deadline belum ditentukan."
+    overdue = False
+
+    if deadline not in (None, ""):
+        try:
+            deadline_text = str(deadline)
+            due = datetime.fromisoformat(deadline_text)
+
+            # Jika hanya tanggal, deadline dianggap akhir hari.
+            if len(deadline_text) == 10:
+                due = due.replace(
+                    hour=23,
+                    minute=59,
+                    second=59,
+                    microsecond=0,
+                )
+
+            if due.tzinfo is not None:
+                from datetime import timezone
+
+                now = datetime.now(timezone.utc).astimezone(due.tzinfo)
+            else:
+                now = datetime.now()
+
+            remaining = (due - now).total_seconds()
+        except (TypeError, ValueError, OverflowError):
+            deadline_reason = (
+                "Format deadline tidak valid sehingga "
+                "tidak dapat dinilai dengan akurat."
+            )
+        else:
+            if remaining < 0:
+                deadline_score = 100
+                deadline_reason = "Deadline sudah terlewat."
+                overdue = True
+            elif remaining <= 24 * 60 * 60:
+                deadline_score = 85
+                deadline_reason = "Deadline kurang dari atau sama dengan 24 jam."
+            elif remaining <= 3 * 24 * 60 * 60:
+                deadline_score = 65
+                deadline_reason = "Deadline tinggal 1–3 hari."
+            elif remaining <= 7 * 24 * 60 * 60:
+                deadline_score = 45
+                deadline_reason = "Deadline tinggal 4–7 hari."
+            else:
+                deadline_score = 25
+                deadline_reason = "Deadline lebih dari 7 hari."
+
+    # Deadline terlewat mendapat skor maksimum; selain itu skor
+    # menggunakan bobot deadline 60% dan kepentingan 40%.
+    score = 100 if overdue else int(
+        deadline_score * 0.6
+        + importance_score * 0.4
+        + 0.5
+    )
+    progress_bonus = 0
+    if status == "in_progress":
+        progress_bonus = min(5, 100 - score)
+        score += progress_bonus
+
+    if overdue:
+        level = "critical"
+    elif score >= 75:
+        level = "high"
+    elif score >= 50:
+        level = "medium"
+    elif score >= 25:
+        level = "low"
+    else:
+        level = "undetermined"
+
+    if overdue:
+        reason = (
+            f"{deadline_reason} Kepentingan tugas {importance_label}; "
+            "deadline terlewat mendapat skor maksimum."
+        )
+    else:
+        reason = (
+            f"{deadline_reason} Kepentingan tugas {importance_label}; "
+            "skor memakai bobot deadline 60% dan kepentingan 40%."
+        )
+    if progress_bonus:
+        reason += (
+            f" Tambahan {progress_bonus} poin karena tugas sedang dikerjakan."
+        )
+
+    return {
+        "score": score,
+        "level": level,
+        "reason": reason,
+        "deadline_score": deadline_score,
+        "importance_score": importance_score,
+    }
 
 
 def send_n8n_event(event: str, task: dict) -> None:
@@ -107,15 +249,19 @@ def send_n8n_event(event: str, task: dict) -> None:
 # Model untuk data tugas baru.
 class TaskCreate(BaseModel):
     title: str = Field(min_length=1, max_length=200)
-    description: str | None = None
+    description: str | None = Field(default=None, max_length=2000)
     deadline: str | None = None
+    importance: Literal["low", "normal", "high"] = "normal"
 
 # Model untuk memperbarui tugas.
 class TaskUpdate(BaseModel):
     title: str | None = Field(default=None, max_length=200)
-    description: str | None = None
-    status: Literal["pending", "in_progress", "completed"] | None = None
+    description: str | None = Field(default=None, max_length=2000)
+    status: Literal[
+        "pending", "in_progress", "completed"
+    ] | None = None
     deadline: str | None = None
+    importance: Literal["low", "normal", "high"] | None = None
 
 @app.get("/")
 def home():
@@ -146,6 +292,7 @@ def create_new_task(task: TaskCreate):
         title=title,
         description=task.description,
         deadline=deadline,
+        importance=task.importance,
     )
 
     send_n8n_event("task.created", created_task)
@@ -155,6 +302,44 @@ def create_new_task(task: TaskCreate):
 @app.get("/tasks")
 def read_all_tasks():
     return crud.get_all_tasks()
+
+
+@app.get("/tasks/prioritized")
+def get_prioritized_tasks():
+    """Mengembalikan tugas dengan skor prioritas yang dihitung saat diminta."""
+    prioritized_tasks = []
+
+    for task in crud.get_all_tasks():
+        priority = calculate_task_priority(task)
+        prioritized_tasks.append(
+            {
+                **task,
+                "priority_score": priority["score"],
+                "priority_level": priority["level"],
+                "priority_reason": priority["reason"],
+                "deadline_score": priority["deadline_score"],
+                "importance_score": priority["importance_score"],
+            }
+        )
+
+    prioritized_tasks.sort(
+        key=lambda task: (
+            str(task.get("status") or "pending").strip().lower() == "completed",
+            -task["priority_score"],
+            task.get("deadline") or "9999-12-31",
+            task.get("id", 0),
+        )
+    )
+
+    return {
+        "total_tasks": len(prioritized_tasks),
+        "active_tasks": sum(
+            str(task.get("status") or "pending").strip().lower() != "completed"
+            for task in prioritized_tasks
+        ),
+        "tasks": prioritized_tasks,
+    }
+
 
 @app.get("/tasks/duplicates")
 def get_duplicate_tasks():
@@ -219,13 +404,23 @@ def update_existing_task(task_id: int, task: TaskUpdate):
 
 @app.delete("/tasks/{task_id}")
 def delete_existing_task(task_id: int):
+    task = crud.get_task_by_id(task_id)
+
+    if task is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Tugas tidak ditemukan.",
+        )
+
     deleted = crud.delete_task(task_id)
 
     if not deleted:
         raise HTTPException(
             status_code=404,
-            detail="Tugas tidak ditemukan.",
+            detail="Tugas gagal dihapus atau sudah tidak tersedia.",
         )
+
+    send_n8n_event("task.deleted", task)
 
     return {
         "message": "Tugas berhasil dihapus.",
@@ -235,8 +430,15 @@ def delete_existing_task(task_id: int):
 from pydantic import BaseModel
 
 
+
+from pydantic import BaseModel, Field
+
 class ChatRequest(BaseModel):
-    message: str
+    message: str = Field(
+        min_length=1,
+        max_length=4000,
+        description="Pesan untuk AI, maksimal 4000 karakter.",
+    )
 
 import re
 
@@ -255,6 +457,30 @@ def cleanup_expired_tokens():
     for token in expired_tokens:
         pending_deletions.pop(token, None)
 
+
+def find_task_by_title(title: str):
+    """Mencari tugas berdasarkan judul yang cocok persis."""
+    requested_title = " ".join(title.split()).casefold()
+    tasks = crud.get_all_tasks()
+    matches = [
+        task
+        for task in tasks
+        if " ".join(
+            str(task.get("title") or "").split()
+        ).casefold() == requested_title
+    ]
+
+    if len(matches) > 1:
+        return {
+            "error": "duplicate",
+            "matches": matches,
+        }
+    if not matches:
+        return None
+    return matches[0]
+
+
+
 def handle_task_command(message: str):
     """
     Menangani perintah tugas yang formatnya jelas.
@@ -263,23 +489,53 @@ def handle_task_command(message: str):
     text = message.strip()
     normalized = text.casefold()
 
+    # Periksa konfirmasi sebelum membersihkan token kedaluwarsa.
+    confirm_match = re.fullmatch(
+        r"konfirmasi hapus\s+([A-Za-z0-9_-]+)",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    if confirm_match:
+        token = confirm_match.group(1)
+        pending = pending_deletions.get(token)
+
+        if pending is None:
+            return {
+                "reply": "Token tidak valid atau sudah digunakan.",
+                "action": "delete_rejected",
+            }
+
+        if time.time() > pending["expires_at"]:
+            pending_deletions.pop(token, None)
+            return {
+                "reply": "Token kedaluwarsa. Silakan minta konfirmasi baru.",
+                "action": "delete_expired",
+            }
+
     cleanup_expired_tokens()
 
     # A. Membuat tugas baru
     create_match = re.fullmatch(
-        r"(?:buat|tambahkan)\s+tugas\s*[:\-]?\s*(.+)",
+        r"(?:buat|tambahkan)\s+tugas\s*:?\s*(.+)",
         text,
         flags=re.IGNORECASE,
     )
 
     if create_match:
-        title = create_match.group(1).strip()
-
-        if not title:
-            return {
-                "reply": "Judul tugas belum diisi.",
-                "action": "none",
-            }
+        task_text = create_match.group(1).strip()
+        importance = "normal"
+        importance_match = re.search(
+            r"\s+dengan\s+importance\s+"
+            r"(low|normal|high)\s*$",
+            task_text,
+            flags=re.IGNORECASE,
+        )
+        if importance_match:
+            importance = importance_match.group(1).casefold()
+            title = task_text[:importance_match.start()].strip()
+        else:
+            title = task_text
 
         if len(title) > 200:
             return {
@@ -287,10 +543,17 @@ def handle_task_command(message: str):
                 "action": "none",
             }
 
+        if not title:
+            return {
+                "reply": "Judul tugas belum diisi.",
+                "action": "none",
+            }
+
         task = crud.create_task(
             title=title,
             description=None,
             deadline=None,
+            importance=importance,
         )
 
         send_n8n_event("task.created", task)
@@ -355,6 +618,7 @@ def handle_task_command(message: str):
             task_id=task_id,
             status=new_status,
         )
+        send_n8n_event("task.updated", updated_task)
 
         return {
             "reply": (
@@ -395,6 +659,7 @@ def handle_task_command(message: str):
             task_id=task_id,
             title=new_title,
         )
+        send_n8n_event("task.updated", updated_task)
 
         return {
             "reply": f"Judul tugas ID {task_id} berhasil diperbarui.",
@@ -436,6 +701,7 @@ def handle_task_command(message: str):
             task_id=task_id,
             deadline=new_deadline,
         )
+        send_n8n_event("task.updated", updated_task)
 
         return {
             "reply": (
@@ -489,6 +755,8 @@ def handle_task_command(message: str):
                 "action": "delete_rejected",
             }
 
+        send_n8n_event("task.deleted", task)
+
         return {
             "reply": f"Tugas ID {task_id} berhasil dihapus.",
             "action": "delete_task",
@@ -524,6 +792,110 @@ def handle_task_command(message: str):
                 f"Kamu meminta menghapus tugas ID {task_id}: "
                 f"{task['title']}.\n"
                 f"Untuk mengonfirmasi, kirim: "
+                f"konfirmasi hapus {token}\n"
+                f"Token berlaku selama 5 menit."
+            ),
+            "action": "confirmation_required",
+            "task": task,
+        }
+
+    # G. Mengubah status tugas berdasarkan judul.
+    title_status_match = re.fullmatch(
+        r"ubah\s+status\s+tugas\s+(.+?)\s+"
+        r"menjadi\s+(pending|in_progress|in progress|"
+        r"completed|belum dikerjakan|belum selesai|"
+        r"sedang dikerjakan|selesai|sudah selesai)",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    if title_status_match:
+        task_title = title_status_match.group(1).strip()
+        requested_status = title_status_match.group(2).strip().casefold()
+        status_mapping = {
+            "pending": "pending",
+            "belum dikerjakan": "pending",
+            "belum selesai": "pending",
+            "in_progress": "in_progress",
+            "in progress": "in_progress",
+            "sedang dikerjakan": "in_progress",
+            "completed": "completed",
+            "selesai": "completed",
+            "sudah selesai": "completed",
+        }
+        new_status = status_mapping[requested_status]
+        task = find_task_by_title(task_title)
+
+        if task is None:
+            return {
+                "reply": f"Tugas '{task_title}' tidak ditemukan.",
+                "action": "none",
+            }
+        if task.get("error") == "duplicate":
+            return {
+                "reply": (
+                    "Ada beberapa tugas dengan judul yang sama. "
+                    "Gunakan perintah berdasarkan ID agar tepat."
+                ),
+                "action": "none",
+            }
+
+        task_id = task["id"]
+        updated_task = crud.update_task(
+            task_id=task_id,
+            status=new_status,
+        )
+        if not updated_task:
+            return {
+                "reply": "Tugas gagal diperbarui.",
+                "action": "none",
+            }
+
+        send_n8n_event("task.updated", updated_task)
+        return {
+            "reply": (
+                f"Status tugas '{task_title}' berhasil diperbarui "
+                f"menjadi {new_status}."
+            ),
+            "action": "update_task",
+            "task": updated_task,
+        }
+
+    # H. Meminta konfirmasi penghapusan berdasarkan judul.
+    title_delete_match = re.fullmatch(
+        r"hapus\s+tugas\s+(.+)",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    if title_delete_match:
+        task_title = title_delete_match.group(1).strip()
+        task = find_task_by_title(task_title)
+
+        if task is None:
+            return {
+                "reply": f"Tugas '{task_title}' tidak ditemukan.",
+                "action": "none",
+            }
+        if task.get("error") == "duplicate":
+            return {
+                "reply": (
+                    "Ada beberapa tugas dengan judul yang sama. "
+                    "Gunakan perintah 'hapus tugas ID' agar tepat."
+                ),
+                "action": "none",
+            }
+
+        token = secrets.token_urlsafe(12)
+        pending_deletions[token] = {
+            "task_id": task["id"],
+            "expires_at": time.time() + 300,
+        }
+        return {
+            "reply": (
+                f"Kamu meminta menghapus tugas "
+                f"'{task['title']}' (ID: {task['id']}).\n"
+                f"Untuk mengonfirmasi, kirim:\n"
                 f"konfirmasi hapus {token}\n"
                 f"Token berlaku selama 5 menit."
             ),
@@ -607,6 +979,7 @@ def chat_with_ai(request: ChatRequest):
     try:
         # 1. Ambil data terbaru dari SQLite
         tasks = crud.get_all_tasks()
+        valid_importance = {"low", "normal", "high"}
 
         # 2. Hitung status aktual secara otomatis
         status_counts = Counter(
@@ -614,64 +987,82 @@ def chat_with_ai(request: ChatRequest):
             for task in tasks
         )
 
-        # 2b. Siapkan daftar tugas berdasarkan status aktual
-        completed_statuses = {"completed"}
+        # 2b. Hitung skor prioritas untuk setiap tugas tanpa mengubah data.
+        tasks_with_priority = []
+        for task in tasks:
+            priority = calculate_task_priority(task)
+            tasks_with_priority.append(
+                {
+                    **task,
+                    "priority_score": priority["score"],
+                    "priority_level": priority["level"],
+                    "priority_reason": priority["reason"],
+                    "deadline_score": priority["deadline_score"],
+                    "importance_score": priority["importance_score"],
+                }
+            )
 
+        # 3. Siapkan daftar tugas aktif berdasarkan status aktual.
+        completed_statuses = {"completed"}
         open_tasks = [
             task
-            for task in tasks
+            for task in tasks_with_priority
             if str(task.get("status") or "unknown").strip().lower()
             not in completed_statuses
         ]
-        
-        # 3. Deteksi kemungkinan tugas duplikat
+
+        # 4. Deteksi kemungkinan tugas duplikat.
         possible_duplicates = detect_possible_duplicates(tasks)
-            
-        # 3b. Periksa ketersediaan data untuk menentukan prioritas
+
+        # 5. Periksa kelengkapan data prioritas untuk tugas aktif.
         deadline_available = any(
             task.get("deadline") not in (None, "")
-            for task in tasks
+            for task in open_tasks
         )
 
-        urgency_available = any(
-            task.get("urgency") not in (None, "")
-            for task in tasks
+        importance_available = any(
+            task.get("importance") in valid_importance
+            for task in open_tasks
+        )
+
+        all_open_tasks_have_priority_data = (
+            bool(open_tasks)
+            and all(
+                task.get("deadline") not in (None, "")
+                and task.get("importance") in valid_importance
+                for task in open_tasks
+            )
         )
 
         priority_data = {
             "deadline_available": deadline_available,
-            "urgency_available": urgency_available,
+            "importance_available": importance_available,
             "objective_prioritization_possible": (
-                bool(tasks)
-                and all(
-                    task.get("deadline") not in (None, "")
-                    and task.get("urgency") not in (None, "")
-                    for task in tasks
-                )
+                all_open_tasks_have_priority_data
             ),
             "limitation": (
-                "Prioritas belum dapat ditentukan secara objektif "
-                "karena deadline dan/atau urgensi belum tersedia "
-                "secara lengkap."
-            )
+                "Sebagian tugas aktif belum memiliki deadline atau "
+                "tingkat kepentingan yang memadai untuk analisis "
+                "prioritas yang lengkap."
+            ),
         }
 
-        # 4. Siapkan ringkasan data yang faktual
+        # 6. Susun konteks faktual untuk AI.
         business_data = {
-            "total_tasks": len(tasks),
+            "total_tasks": len(tasks_with_priority),
             "status_counts": dict(status_counts),
-            "tasks": tasks,
+            "tasks": tasks_with_priority,
             "open_tasks": open_tasks,
             "possible_duplicates": possible_duplicates,
             "possible_duplicate_groups": len(possible_duplicates),
-            "priority_data": priority_data
+            "priority_data": priority_data,
         }
 
         tasks_context = json.dumps(
             business_data,
             ensure_ascii=False,
             indent=2,
-            default=str
+            default=str,
         )
 
         # 5. Instruksi untuk AI
@@ -704,34 +1095,43 @@ def chat_with_ai(request: ChatRequest):
            Jangan menghapus atau mengubah tugas.
         10. Kesamaan judul dan deskripsi hanya indikasi awal,
             bukan bukti pasti bahwa tugas merupakan duplikat.
-        11. Jangan menghapus atau mengubah tugas. Berikan analisis
-            dan rekomendasi saja.
-        12. Saat pengguna meminta rekomendasi prioritas tugas:
-            a. Gunakan deadline dan urgensi hanya jika benar-benar
-            tersedia dalam data.
-            b. Jangan menganggap tugas yang dibuat lebih awal
-            otomatis lebih mendesak.
-            c. Jangan menyimpulkan urutan ketergantungan antar-tugas
-            tanpa bukti dari data atau konteks pengguna.
-            d. Jangan menetapkan prioritas tinggi, sedang, atau
-            rendah sebagai fakta jika tidak ada dasar yang cukup.
-            e. Jika deadline dan urgensi tidak tersedia, jelaskan
-            bahwa prioritas belum dapat ditentukan secara objektif.
-            f. Jika tetap memberikan urutan sementara, nyatakan
-            bahwa urutan tersebut merupakan saran awal, bukan
-            prioritas yang telah terbukti.
-            g. Untuk tugas yang terindikasi duplikat, sarankan
-            pengguna memverifikasi keduanya sebelum menetapkan
-            prioritas terpisah. Jangan menganggap salah satunya
-            tidak diperlukan tanpa konfirmasi.
-            h. Jika diperlukan, tanyakan deadline, urgensi, atau
-            dampak bisnis untuk membantu menentukan prioritas.
-            i. Gunakan priority_data dari sistem untuk mengetahui
-            apakah deadline dan urgensi tersedia.
-            j. Jika objective_prioritization_possible bernilai false,
-            jangan menyatakan bahwa urutan prioritas dapat
-            ditentukan secara objektif. Jelaskan keterbatasannya
-            dan minta informasi tambahan jika diperlukan.
+        11. Jangan mengubah, menambahkan, atau menghapus data
+        secara langsung melalui respons Gemini.
+        Semua perubahan data harus dijalankan oleh backend
+        melalui handle_task_command() yang telah divalidasi.
+        Jika perintah tidak dikenali oleh backend, jangan
+        mengaku telah mengubah data.
+        12. Saat pengguna meminta rekomendasi prioritas atau rencana kerja:
+            a. Gunakan data tugas aktual dari database dan priority_data.
+            b. Pertimbangkan deadline, importance, status, dan
+            priority_score yang dihitung oleh backend jika tersedia.
+            c. Sistem menghitung skor prioritas dengan bobot deadline
+            60% dan tingkat kepentingan 40%. Tugas yang terlambat
+            mendapat skor 100. Tugas berstatus in_progress mendapat
+            tambahan hingga 5 poin, dengan skor akhir maksimum 100.
+            Gunakan priority_score, priority_level, dan priority_reason
+            dari backend jika tersedia. Jangan menghitung ulang atau
+            mengubah skor prioritas yang sudah diberikan backend.
+            d. Jangan mengarang deadline, kepentingan, durasi pengerjaan,
+            dampak bisnis, atau ketergantungan antar-tugas.
+            e. Bedakan fakta database, hasil perhitungan sistem,
+            dan rekomendasi AI.
+            f. Jika objective_prioritization_possible bernilai false,
+            jelaskan informasi yang belum lengkap dan berikan
+            rekomendasi sementara dengan keterbatasan yang jelas.
+            g. Jangan menyatakan tugas terlambat hanya karena dibuat
+            pada hari sebelumnya. Gunakan deadline aktual.
+            h. Tugas dengan deadline terlewat harus diperlakukan
+            sebagai tugas terlambat, bukan otomatis selesai.
+            i. Tugas completed tidak direkomendasikan sebagai pekerjaan
+            yang masih harus dilakukan.
+            j. Jika terdapat kemungkinan duplikat, sarankan verifikasi
+            sebelum memberikan rekomendasi tindakan.
+            k. Untuk rencana kerja, berikan urutan tindakan yang jelas,
+            alasan singkat, dan informasi yang masih dibutuhkan.
+            l. Jangan mengubah, menambahkan, atau menghapus data
+            hanya berdasarkan rekomendasi. Perubahan hanya
+            dilakukan melalui mekanisme perintah tugas backend.
         13. Jangan mengarang data yang tidak ada. Jika informasi
             tidak tersedia, sampaikan keterbatasannya.
         14. Jika database kosong, sampaikan bahwa belum ada tugas.
@@ -742,14 +1142,28 @@ def chat_with_ai(request: ChatRequest):
         """
 
         # 6. Kirim konteks dan pertanyaan ke Gemini
-        response = gemini_client.models.generate_content(
-            model="gemini-3.8-flash",
-            contents=f"""
+        prompt = f"""
         {business_context}
-
         PERTANYAAN PENGGUNA:
         {message}
         """
+
+        print(
+            f"Ukuran prompt Gemini: {len(prompt)} karakter",
+            flush=True,
+        )
+
+        start_time = time.perf_counter()
+
+        response = gemini_client.models.generate_content(
+            model="gemini-3.5-flash-lite",
+            contents=prompt,
+        )
+
+        elapsed_time = time.perf_counter() - start_time
+        print(
+            f"Waktu respons Gemini: {elapsed_time:.2f} detik",
+            flush=True,
         )
 
         if not response.text:
@@ -773,31 +1187,65 @@ def chat_with_ai(request: ChatRequest):
 
     except HTTPException:
         raise
+
     except Exception as error:
-        import traceback
+        error_code = getattr(error, "code", None)
+        error_message = str(error).lower()
 
+        # Catat penyebab asli error di terminal backend.
         print(
-            f"ERROR pada endpoint /ai/chat: {error!r}",
-            flush=True
+            f"Error pada endpoint /ai/chat | "
+            f"Tipe: {type(error).__name__} | "
+            f"Kode: {error_code} | "
+            f"Detail: {error}",
+            flush=True,
         )
-        traceback.print_exc()
 
-        error_message = str(error).upper()
-
-        if "429" in error_message or "RESOURCE_EXHAUSTED" in error_message:
+        if (
+            error_code == 429
+            or "429" in error_message
+            or "resource_exhausted" in error_message
+        ):
             raise HTTPException(
                 status_code=429,
                 detail=(
-                    "Kuota API Gemini sedang habis. "
-                    "Silakan tunggu hingga kuota tersedia kembali "
-                    "atau periksa batas penggunaan di Google AI Studio."
-                )
-            )
+                    "Batas penggunaan AI tercapai. "
+                    "Periksa kuota dan batas penggunaan API Gemini."
+                ),
+            ) from error
+
+        if (
+            error_code == 503
+            or "503" in error_message
+            or "unavailable" in error_message
+        ):
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Layanan AI sedang sibuk atau sementara tidak tersedia. "
+                    "Silakan coba kembali beberapa saat lagi."
+                ),
+            ) from error
+
+        if (
+            error_code == 504
+            or "504" in error_message
+            or "deadline exceeded" in error_message
+            or "timed out" in error_message
+            or "timeout" in error_message
+        ):
+            raise HTTPException(
+                status_code=504,
+                detail=(
+                    "Permintaan AI membutuhkan waktu terlalu lama. "
+                    "Silakan coba kembali."
+                ),
+            ) from error
 
         raise HTTPException(
             status_code=502,
             detail=(
                 "Gagal memproses permintaan AI. "
-                "Periksa terminal backend."
-            )
-        )
+                "Periksa log terminal backend untuk informasi lebih lanjut."
+            ),
+        ) from error

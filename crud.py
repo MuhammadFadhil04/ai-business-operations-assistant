@@ -2,20 +2,31 @@
 from database import get_connection
 
 UNSET = object()
+ALLOWED_IMPORTANCE = {"low", "normal", "high"}
 
 
-def create_task(title, description=None, deadline=None):
+def create_task(
+    title,
+    description=None,
+    deadline=None,
+    importance="normal",
+):
     """Menambahkan tugas operasional baru."""
     if not title or not title.strip():
         raise ValueError("Judul tugas tidak boleh kosong.")
 
+    if importance not in ALLOWED_IMPORTANCE:
+        raise ValueError("Tingkat kepentingan tugas tidak valid.")
+
     with get_connection() as connection:
         cursor = connection.execute(
             """
-            INSERT INTO tasks (title, description, deadline)
-            VALUES (?, ?, ?)
+            INSERT INTO tasks (
+                title, description, deadline, importance
+            )
+            VALUES (?, ?, ?, ?)
             """,
-            (title.strip(), description, deadline),
+            (title.strip(), description, deadline, importance),
         )
 
         task_id = cursor.lastrowid
@@ -55,6 +66,7 @@ def update_task(
     description=None,
     status=None,
     deadline=UNSET,
+    importance=UNSET,
 ):
     """Memperbarui data tugas berdasarkan ID."""
     allowed_statuses = {"pending", "in_progress", "completed"}
@@ -84,6 +96,11 @@ def update_task(
             if deadline is not UNSET
             else existing_task["deadline"]
         )
+        new_importance = (
+            importance
+            if importance is not UNSET
+            else existing_task["importance"]
+        )
 
         if not new_title or not new_title.strip():
             raise ValueError("Judul tugas tidak boleh kosong.")
@@ -91,13 +108,17 @@ def update_task(
         if new_status not in allowed_statuses:
             raise ValueError("Status tugas tidak valid.")
 
+        if new_importance not in ALLOWED_IMPORTANCE:
+            raise ValueError("Tingkat kepentingan tugas tidak valid.")
+
         connection.execute(
             """
             UPDATE tasks
             SET title = ?,
                 description = ?,
                 status = ?,
-                deadline = ?
+                deadline = ?,
+                importance = ?
             WHERE id = ?
             """,
             (
@@ -105,6 +126,7 @@ def update_task(
                 new_description,
                 new_status,
                 new_deadline,
+                new_importance,
                 task_id,
             ),
         )
