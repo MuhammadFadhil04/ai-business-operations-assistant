@@ -631,7 +631,7 @@ def handle_task_command(message: str):
 
     # C. Mengubah judul tugas
     title_match = re.fullmatch(
-        r"ubah judul tugas\s+(?:id\s*)?#?(\d+)\s+"
+        r"(?:ubah|ganti|perbarui) judul tugas\s+(?:id\s*)?#?(\d+)\s+"
         r"menjadi\s+(.+)",
         text,
         flags=re.IGNORECASE,
@@ -640,6 +640,12 @@ def handle_task_command(message: str):
     if title_match:
         task_id = int(title_match.group(1))
         new_title = title_match.group(2).strip()
+
+        if not new_title:
+            return {
+                "reply": "Judul tugas tidak boleh kosong.",
+                "action": "none",
+            }
 
         if len(new_title) > 200:
             return {
@@ -663,6 +669,63 @@ def handle_task_command(message: str):
 
         return {
             "reply": f"Judul tugas ID {task_id} berhasil diperbarui.",
+            "action": "update_task",
+            "task": updated_task,
+        }
+
+    # Ubah judul berdasarkan nama lama yang harus cocok persis.
+    title_by_name_match = re.fullmatch(
+        r"(?:ubah|ganti|perbarui) judul tugas\s+(.+?)\s+"
+        r"menjadi\s+(.+)",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    if title_by_name_match:
+        old_title = title_by_name_match.group(1).strip()
+        new_title = title_by_name_match.group(2).strip()
+
+        if not new_title:
+            return {
+                "reply": "Judul tugas tidak boleh kosong.",
+                "action": "none",
+            }
+
+        if len(new_title) > 200:
+            return {
+                "reply": "Judul tugas maksimal 200 karakter.",
+                "action": "none",
+            }
+
+        task = find_task_by_title(old_title)
+
+        if task is None:
+            return {
+                "reply": f"Tugas '{old_title}' tidak ditemukan.",
+                "action": "none",
+            }
+        if task.get("error") == "duplicate":
+            return {
+                "reply": (
+                    "Ada beberapa tugas dengan judul yang sama. "
+                    "Gunakan perintah berdasarkan ID agar tepat."
+                ),
+                "action": "none",
+            }
+
+        updated_task = crud.update_task(
+            task_id=task["id"],
+            title=new_title,
+        )
+        if not updated_task:
+            return {
+                "reply": "Tugas gagal diperbarui.",
+                "action": "none",
+            }
+
+        send_n8n_event("task.updated", updated_task)
+        return {
+            "reply": f"Judul tugas '{old_title}' berhasil diperbarui menjadi '{new_title}'.",
             "action": "update_task",
             "task": updated_task,
         }

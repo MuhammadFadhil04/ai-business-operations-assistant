@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#f5f7fb">
     <title>AI Business Operations Assistant</title>
-    <link rel="stylesheet" href="style.css?v=2">
+    <link rel="stylesheet" href="style.css?v=3">
 </head>
 <body>
     <header class="app-header">
@@ -34,43 +34,27 @@
             </div>
         </section>
 
-<section class="stats-grid" aria-label="Ringkasan tugas">
-  <article class="stat-card">
-    <div class="stat-top">
-      <span class="stat-label">Total Tugas</span>
-      <span class="stat-icon total-icon">▤</span>
-    </div>
-    <p class="stat-value" id="total-tasks">0</p>
-    <p class="stat-description">Semua tugas terdaftar</p>
-  </article>
-
-  <article class="stat-card">
-    <div class="stat-top">
-      <span class="stat-label">Menunggu</span>
-      <span class="stat-icon pending-icon">◷</span>
-    </div>
-    <p class="stat-value" id="pending-tasks">0</p>
-    <p class="stat-description">Tugas belum dikerjakan</p>
-  </article>
-
-  <article class="stat-card">
-    <div class="stat-top">
-      <span class="stat-label">Berlangsung</span>
-      <span class="stat-icon progress-icon">↗</span>
-    </div>
-    <p class="stat-value" id="in-progress-tasks">0</p>
-    <p class="stat-description">Tugas sedang dikerjakan</p>
-  </article>
-
-  <article class="stat-card">
-    <div class="stat-top">
-      <span class="stat-label">Selesai</span>
-      <span class="stat-icon completed-icon">✓</span>
-    </div>
-    <p class="stat-value" id="completed-tasks">0</p>
-    <p class="stat-description">Tugas telah diselesaikan</p>
-  </article>
-</section>
+        <section class="task-overview" aria-labelledby="task-overview-title">
+            <h2 id="task-overview-title">Ringkasan tugas</h2>
+            <dl class="stats-grid">
+                <div class="stat-item">
+                    <dt class="stat-label">Total tugas</dt>
+                    <dd class="stat-value" id="total-tasks">0</dd>
+                </div>
+                <div class="stat-item">
+                    <dt class="stat-label">Menunggu</dt>
+                    <dd class="stat-value" id="pending-tasks">0</dd>
+                </div>
+                <div class="stat-item">
+                    <dt class="stat-label">Berlangsung</dt>
+                    <dd class="stat-value" id="in-progress-tasks">0</dd>
+                </div>
+                <div class="stat-item">
+                    <dt class="stat-label">Selesai</dt>
+                    <dd class="stat-value" id="completed-tasks">0</dd>
+                </div>
+            </dl>
+        </section>
 
         <div class="workspace-grid">
             <section id="add-task-section" class="panel add-task-panel">
